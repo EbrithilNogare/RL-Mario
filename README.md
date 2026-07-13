@@ -1,32 +1,31 @@
 # tiny-mario-rl
 
-A zero-dependency browser showcase where a small neural network learns to play a Mario-style platformer using a genetic algorithm. Everything is plain HTML, CSS, and JavaScript — no libraries, no build step. Just open `index.html` in a browser.
+Watch a tiny artificial "brain" teach itself to play a Mario-style platformer, right in your browser.
 
-## What it does
+**▶️ [Open the live demo](https://ebrithilnogare.github.io/RL-Mario/)**
 
-Agents run through a procedurally generated level with pipes, stairs, pits, spikes, springs, platforms, coins, and three enemy types (goombas, flyers, and unstompable spinies). Each agent is a tiny feed-forward network whose weights are evolved: every generation the population is scored by fitness, the best genomes are kept, and the rest are bred with crossover and mutation. Difficulty ramps up along the level, and reaching the flag wins.
+## What is this?
 
-## Features
+Little characters keep trying to run through a level full of pipes, pits, spikes, enemies and coins. At first they fail almost immediately. Each round (a "generation"), the best ones are kept and slightly tweaked, and over time they learn to jump, dodge and reach the flag — no one programs how, they figure it out by trial and error.
 
-- **Selectable AI inputs** — choose what the network senses: distances to hazards, nearest enemy/coin positions, forward and upward sight rays, or a tile grid around the player. Changing inputs rebuilds the network.
-- **Configurable network** — hidden layer count and neurons per layer.
-- **Configurable fitness** — rewards for distance, coins, enemy kills, and punishments for death, jumping, and time spent.
-- **Multithreaded training** — the population is evaluated in parallel Web Workers with a user-set thread count.
-- **Generalization training** — the network is never reset on level change; switch levels manually or automatically every N generations so the same brain must learn level-independent skills.
-- **Live visualization** — the network with activations, sensor rays and grid overlay in-game, action output bars, a level progress bar, and a fitness history chart with level-change markers.
+## How to use it
 
-## Files
+1. Open the [demo](https://ebrithilnogare.github.io/RL-Mario/).
+2. Press **TRAIN** and watch the graph climb as the brains improve.
+3. Press **WATCH BEST** any time to see the current best player run a level.
+4. Press **NEW LEVEL** to throw a fresh, unseen level at them.
 
-| File | Purpose |
-| --- | --- |
-| `index.html` | Page layout and controls |
-| `style.css` | Styling |
-| `js/neuralNetwork.js` | Feed-forward network (genome = flat weight array) |
-| `js/simulation.js` | Game physics, sensors/input definitions, fitness |
-| `js/level.js` | Seeded procedural level generation with difficulty scaling |
-| `js/genetics.js` | Selection, crossover, mutation |
-| `js/trainer.js` | Web Worker pool for parallel evaluation |
-| `js/rendering.js` | Game, network, and chart canvases |
-| `js/main.js` | State and UI wiring |
+## Things you can tweak
 
-`mario-rl.html` is the original single-file proof of concept this project was rebuilt from.
+- **Inputs** — what the character is allowed to "see" (nearby enemies, coins, gaps, walls, and more).
+- **Network** — how big the brain is.
+- **Rewards** — what counts as good or bad: reaching the flag, grabbing coins, stomping enemies, dying, jumping, wasting time.
+- **Maps & threads** — how many levels each player is tested on, and how much of your computer to use for faster learning.
+
+## Reading the graph
+
+- **Black line** — the best score so far.
+- **Grey line** — the average of everyone.
+- **Blue line** — how the current best does on a secret level it never practices on, showing whether it's truly learning or just memorizing.
+
+No installation, no accounts, nothing to download — it all runs in your browser.
