@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tiny-mario-rl</title>
+<style>
+  :root{
+    --bg:#c0c0c0; --panel:#e8e8e8; --ink:#111; --dim:#555;
+    --hi:#0000aa; --ok:#007700; --bad:#aa0000;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Courier New", monospace; font-size:14px;
+    padding:16px; max-width:980px; margin:0 auto;
+  }
+  h1{font-size:18px; margin-bottom:4px;}
+  h2{font-size:14px; margin-bottom:8px; text-transform:uppercase;}
+  .sub{color:var(--dim); margin-bottom:16px;}
+  .panel{
+    background:var(--panel); border:2px solid var(--ink);
+    padding:12px; margin-bottom:16px;
+    box-shadow:4px 4px 0 var(--ink);
+  }
+  .row{display:flex; gap:16px; flex-wrap:wrap; align-items:center;}
+  label{display:inline-flex; align-items:center; gap:6px;}
+  input[type=range]{width:120px; accent-color:var(--ink);}
+  button{
+    font-family:inherit; font-size:14px; cursor:pointer;
+    background:#fff; color:var(--ink);
+    border:2px solid var(--ink); padding:4px 12px;
+    box-shadow:2px 2px 0 var(--ink);
+  }
+  button:active{transform:translate(2px,2px); box-shadow:none;}
+  button:disabled{color:#999; border-color:#999; box-shadow:2px 2px 0 #999; cursor:default;}
+  canvas{display:block; background:#fff; border:2px solid var(--ink); image-rendering:pixelated;}
+  .stats{margin-top:8px; color:var(--dim);}
+  .stats b{color:var(--ink);}
+  .legend{color:var(--dim); font-size:12px; margin-top:6px;}
+  .legend i{font-style:normal; padding:0 3px;}
+</style>
+</head>
+<body>
+
+<h1>TINY-MARIO-RL</h1>
+<p class="sub">a very small neural network learns to run right // genetic algorithm, no libraries</p>
+
+<!-- ============ 1. NETWORK ============ -->
+<div class="panel">
+  <h2>1. network</h2>
+  <div class="row">
+    <label>hidden layers <input id="nLayers" type="range" min="1" max="20" value="2"> <span id="nLayersV">2</span></label>
+    <label>neurons / layer <input id="nSize" type="range" min="5" max="20" value="10"> <span id="nSizeV">10</span></label>
+    <span class="stats">weights: <b id="wCount">?</b></span>
+  </div>
+  <p class="legend">inputs: obstacle dist / pit dist / enemy dist / coin dist / vertical speed &nbsp;&middot;&nbsp; outputs: idle / left / right / jump / jump+right (argmax)</p>
+  <canvas id="netCanvas" width="940" height="220"></canvas>
+</div>
+
+<!-- ============ 2. GAME ============ -->
+<div class="panel">
+  <h2>2. game</h2>
+  <div class="row" style="margin-bottom:8px">
+    <button id="btnTrain">TRAIN</button>
+    <button id="btnWatch">WATCH BEST</button>
+    <button id="btnLevel">NEW LEVEL</button>
+    <span class="stats">gen <b id="genV">0</b> &nbsp; best dist <b id="bestV">0</b> &nbsp; pop 60 &nbsp; <span id="modeV">idle</span></span>
+  </div>
+  <canvas id="gameCanvas" width="940" height="240"></canvas>
+  <p class="legend">sensors: <i style="color:#aa0000">&#9472; obstacle</i> <i style="color:#884400">&#9472; pit</i> <i style="color:#770077">&#9472; enemy</i> <i style="color:#bb8800">&#9472; coin</i> &nbsp;&middot;&nbsp; touch enemy or fall = death</p>
+</div>
+
+<!-- ============ 3. PROGRESS ============ -->
+<div class="panel">
+  <h2>3. progress</h2>
+  <canvas id="chartCanvas" width="940" height="180"></canvas>
+  <p class="legend"><i style="color:#111">&#9644; best distance</i> <i style="color:#999">&#9644; population average</i> per generation</p>
+</div>
+
+<script>
+"use strict";
+/* ================= RNG ================= */
+let levelSeed = 12345;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+
+/* ================= NEURAL NET ================= */
+const N_IN = 5, N_OUT = 5;
+let hiddenLayers = 2, layerSize = 10;
+
+function netShape(){ // array of layer sizes
+  const s=[N_IN];
+  for(let i=0;i<hiddenLayers;i++) s.push(layerSize);
+  s.push(N_OUT);
+  return s;
+}
+function weightCount(shape){
+  let n=0;
+  for(let i=1;i<shape.length;i++) n += shape[i]*(shape[i-1]+1); // +bias
+  return n;
+}
+function randomGenome(shape){
+  const g=new Float32Array(weightCount(shape));
+  for(let i=0;i<g.length;i++) g[i]=(Math.random()*2-1)*0.8;
+  return g;
+}
+// forward pass, returns {out, acts} acts kept only if keep=true (viz)
+function forward(genome, shape, input, keep){
+  let a=input, k=0;
+  const acts = keep ? [input.slice()] : null;
+  for(let l=1;l<shape.length;l++){
+    const out=new Float32Array(shape[l]);
+    for(let j=0;j<shape[l];j++){
+      let s=genome[k++]; // bias
+      for(let i=0;i<shape[l-1];i++) s+=genome[k++]*a[i];
+      out[j]=Math.tanh(s);
+    }
+    a=out;
+    if(keep) acts.push(a);
+  }
+  return {out:a, acts};
+}
+
+/* ================= LEVEL ================= */
+const TILE=16, GROUND_Y=200, LEVEL_LEN=9000;
+let level=null;
+
+function buildLevel(seed){
+  const r=mulberry32(seed);
+  const obstacles=[], pits=[], coins=[], enemies=[];
+  let x=400;
+  while(x<LEVEL_LEN-400){
+    const t=r();
+    if(t<0.30){ // obstacle (pipe)
+      obstacles.push({x:x, w:32, h:32+((r()<0.4)?16:0)});
+      x+=32;
+    }else if(t<0.50){ // pit
+      const w=48+((r()<0.5)?16:0);
+      pits.push({x:x,w:w});
+      x+=w;
+    }else if(t<0.72){ // enemy
+      enemies.push({x0:x+40, range:60+r()*60});
+      x+=60;
+    }else{ // coins
+      const n=2+(r()*3|0);
+      for(let i=0;i<n;i++) coins.push({x:x+i*24, y:GROUND_Y-70-((r()<0.5)?30:0)});
+      x+=n*24;
+    }
+    x+=120+r()*160;
+  }
+  return {obstacles,pits,coins,enemies};
+}
+
+/* ================= SIM ================= */
+const GRAV=0.55, JUMP=-9.5, RUN=2.6, MAXSTEPS=2600, SIGHT=300;
+
+function newRun(){
+  return {
+    x:60, y:GROUND_Y, vy:0, onGround:true, dead:false,
+    dist:0, coins:0, steps:0, stuck:0, bestX:60,
+    got:new Set(), // collected coin indices
+    en: level.enemies.map(e=>({x:e.x0, x0:e.x0, range:e.range, dir:-1, alive:true}))
+  };
+}
+function groundAt(x){ // is there ground under x?
+  for(const p of level.pits) if(x>p.x && x<p.x+p.w) return false;
+  return true;
+}
+function sensors(s){
+  // distances ahead, normalized 0(near)..1(far/none)
+  let dObs=SIGHT,dPit=SIGHT,dEn=SIGHT,dCoin=SIGHT;
+  for(const o of level.obstacles){ const d=o.x-s.x; if(d>=-8&&d<dObs) dObs=Math.max(0,d); }
+  for(const p of level.pits){ const d=p.x-s.x; if(d>=-8&&d<dPit) dPit=Math.max(0,d); }
+  for(const e of s.en){ if(!e.alive)continue; const d=e.x-s.x; if(d>=-8&&d<dEn) dEn=Math.max(0,d); }
+  level.coins.forEach((c,i)=>{ if(s.got.has(i))return; const d=c.x-s.x; if(d>=0&&d<dCoin) dCoin=d; });
+  return new Float32Array([dObs/SIGHT, dPit/SIGHT, dEn/SIGHT, dCoin/SIGHT, s.vy/12]);
+}
+function step(s, action){
+  // action: 0 idle 1 left 2 right 3 jump 4 jump+right
+  let vx=0;
+  if(action===1) vx=-RUN;
+  if(action===2||action===4) vx=RUN;
+  if((action===3||action===4) && s.onGround){ s.vy=JUMP; s.onGround=false; }
+
+  s.x+=vx;
+  if(s.x<20)s.x=20;
+  s.vy+=GRAV; s.y+=s.vy;
+
+  // ground / pit
+  if(s.y>=GROUND_Y){
+    if(groundAt(s.x)){ s.y=GROUND_Y; s.vy=0; s.onGround=true; }
+    else if(s.y>GROUND_Y+60){ s.dead=true; }
+  }else s.onGround=false;
+
+  // obstacles: solid blocks on ground
+  for(const o of level.obstacles){
+    const top=GROUND_Y-o.h;
+    if(s.x+10>o.x && s.x-10<o.x+o.w && s.y>top){
+      if(s.vy>0 && s.y-s.vy<=top+8){ s.y=top; s.vy=0; s.onGround=true; } // land on top
+      else { s.x = (vx>=0)? o.x-10 : o.x+o.w+10; } // pushed back
+    }
+  }
+  // enemies walk
+  for(const e of s.en){
+    if(!e.alive)continue;
+    e.x+=e.dir*0.8;
+    if(e.x<e.x0-e.range||e.x>e.x0+e.range)e.dir*=-1;
+    if(Math.abs(e.x-s.x)<12 && Math.abs((GROUND_Y)-s.y)<14){
+      if(s.vy>2 && s.y<GROUND_Y-4){ e.alive=false; s.vy=JUMP*0.6; } // stomp
+      else s.dead=true;
+    }
+  }
+  // coins
+  level.coins.forEach((c,i)=>{
+    if(!s.got.has(i) && Math.abs(c.x-s.x)<14 && Math.abs(c.y-(s.y-8))<20){ s.got.add(i); s.coins++; }
+  });
+
+  s.steps++;
+  if(s.x>s.bestX+1){ s.bestX=s.x; s.stuck=0; } else s.stuck++;
+  if(s.stuck>240 || s.steps>MAXSTEPS || s.x>LEVEL_LEN) s.dead=true;
+  s.dist=s.bestX-60;
+}
+function fitness(s){ return s.dist + s.coins*60; }
+
+/* ================= GENETIC ALGO ================= */
+const POP=60, ELITE=6;
+let shape=netShape(), pop=[], best=null, gen=0, history=[];
+
+function resetPopulation(){
+  shape=netShape();
+  pop=Array.from({length:POP},()=>randomGenome(shape));
+  best=pop[0].slice(); gen=0; history=[];
+  drawChart(); drawNet(null); updateStats(0);
+}
+function evaluate(g){
+  const s=newRun();
+  while(!s.dead){
+    const a=forward(g,shape,sensors(s),false).out;
+    let ai=0; for(let i=1;i<N_OUT;i++) if(a[i]>a[ai])ai=i;
+    step(s,ai);
+  }
+  return fitness(s);
+}
+function nextGeneration(){
+  const scored=pop.map(g=>({g,f:evaluate(g)})).sort((a,b)=>b.f-a.f);
+  best=scored[0].g.slice();
+  const avg=scored.reduce((s,e)=>s+e.f,0)/POP;
+  history.push({best:scored[0].f, avg});
+  gen++;
+  // breed
+  const next=scored.slice(0,ELITE).map(e=>e.g.slice());
+  while(next.length<POP){
+    const pick=()=>scored[Math.min(scored.length-1, (Math.random()*Math.random()*POP)|0)].g;
+    const a=pick(), b=pick(), c=new Float32Array(a.length);
+    const cut=(Math.random()*a.length)|0;
+    for(let i=0;i<a.length;i++){
+      c[i]=(i<cut?a[i]:b[i]);
+      if(Math.random()<0.08) c[i]+=(Math.random()*2-1)*0.5;   // mutate
+      if(Math.random()<0.01) c[i]=(Math.random()*2-1)*0.8;    // reset
+    }
+    next.push(c);
+  }
+  pop=next;
+  return scored[0].f;
+}
+
+/* ================= TRAIN LOOP (headless, chunked) ================= */
+let training=false, watching=false, watchRun=null;
+
+function trainLoop(){
+  if(!training) return;
+  const t0=performance.now();
+  while(performance.now()-t0<40){ // ~40ms budget per frame
+    const f=nextGeneration();
+    updateStats(f);
+  }
+  drawChart();
+  drawNet(null);
+  setTimeout(trainLoop,0);
+}
+function setMode(m){ document.getElementById('modeV').textContent=m; }
+function updateStats(f){
+  document.getElementById('genV').textContent=gen;
+  document.getElementById('bestV').textContent=history.length? history[history.length-1].best|0 : 0;
+}
+
+/* ================= PIXEL ART ================= */
+// tiny sprite maps; edit freely. key -> color
+const PAL={r:'#c62828',b:'#1565c0',s:'#f2c197',k:'#3e2723',g:'#2e7d32',y:'#f9a825',w:'#fff',o:'#8d4e10',_:null};
+const SPR_MARIO=[
+"__rrrr__",
+"_rrrrrr_",
+"_kkss_s_",
+"kskssss_",
+"kskkssss",
+"_ssssss_",
+"_rbbbbr_",
+"rrbbbbrr",
+"ssbybybs",
+"_bbbbbb_",
+"_bb__bb_",
+"_kk__kk_"];
+const SPR_GOOMBA=[
+"__oooo__",
+"_oooooo_",
+"owokkowo",
+"oooooooo",
+"_oooooo_",
+"_kk__kk_"];
+const SPR_COIN=[
+"_yyyy_",
+"yywwyy",
+"yywyyy",
+"yywyyy",
+"yywwyy",
+"_yyyy_"];
+function drawSprite(ctx,spr,x,y,px){
+  for(let r=0;r<spr.length;r++)for(let c=0;c<spr[r].length;c++){
+    const col=PAL[spr[r][c]];
+    if(col){ctx.fillStyle=col;ctx.fillRect(x+c*px,y+r*px,px,px);}
+  }
+}
+
+/* ================= GAME RENDER ================= */
+const gc=document.getElementById('gameCanvas'), gctx=gc.getContext('2d');
+function drawGame(s){
+  const camX=Math.max(0, s.x-200);
+  gctx.fillStyle='#bfe3ff'; gctx.fillRect(0,0,gc.width,gc.height);
+  // ground
+  for(let gx=Math.floor(camX/TILE)*TILE; gx<camX+gc.width; gx+=TILE){
+    if(groundAt(gx+TILE/2)){
+      gctx.fillStyle='#7a4a12'; gctx.fillRect(gx-camX,GROUND_Y,TILE,gc.height-GROUND_Y);
+      gctx.fillStyle='#3c8d2f'; gctx.fillRect(gx-camX,GROUND_Y,TILE,6);
+    }
+  }
+  // obstacles = pipes
+  for(const o of level.obstacles){
+    const x=o.x-camX; if(x<-60||x>gc.width)continue;
+    gctx.fillStyle='#1b7f1b';
+    gctx.fillRect(x,GROUND_Y-o.h,o.w,o.h);
+    gctx.fillRect(x-3,GROUND_Y-o.h,o.w+6,10);
+    gctx.strokeStyle='#0b4d0b'; gctx.strokeRect(x,GROUND_Y-o.h,o.w,o.h);
+  }
+  // coins
+  level.coins.forEach((c,i)=>{
+    if(s.got.has(i))return;
+    const x=c.x-camX; if(x<-20||x>gc.width)return;
+    drawSprite(gctx,SPR_COIN,x-6,c.y-6,2);
+  });
+  // enemies
+  for(const e of s.en){
+    if(!e.alive)continue;
+    const x=e.x-camX; if(x<-30||x>gc.width)continue;
+    drawSprite(gctx,SPR_GOOMBA,x-8,GROUND_Y-12,2);
+  }
+  // sensors
+  const sen=sensors(s), px=s.x-camX, py=s.y-14;
+  const cols=['#aa0000','#884400','#770077','#bb8800'];
+  for(let i=0;i<4;i++){
+    if(sen[i]>=1)continue;
+    gctx.strokeStyle=cols[i]; gctx.lineWidth=2;
+    gctx.beginPath(); gctx.moveTo(px,py-i*3);
+    gctx.lineTo(px+sen[i]*SIGHT,py-i*3); gctx.stroke();
+    gctx.fillStyle=cols[i];
+    gctx.fillRect(px+sen[i]*SIGHT-2,py-i*3-2,4,4);
+  }
+  // player
+  drawSprite(gctx,SPR_MARIO,s.x-8-camX,s.y-24,2);
+  // hud
+  gctx.fillStyle='#111'; gctx.font='12px Courier New';
+  gctx.fillText('dist '+(s.dist|0)+'   coins '+s.coins+(s.dead?'   DEAD':''),8,16);
+}
+
+/* ================= WATCH LOOP ================= */
+let lastSensors=new Float32Array(N_IN), lastActs=null;
+function watchLoop(){
+  if(!watching) return;
+  if(!watchRun || watchRun.dead){
+    if(watchRun&&watchRun.dead){ watching=false; setMode('idle'); drawGame(watchRun); return; }
+    watchRun=newRun();
+  }
+  const sen=sensors(watchRun);
+  const fw=forward(best,shape,sen,true);
+  let ai=0; for(let i=1;i<N_OUT;i++) if(fw.out[i]>fw.out[ai])ai=i;
+  step(watchRun,ai);
+  lastSensors=sen; lastActs=fw.acts;
+  drawGame(watchRun);
+  drawNet(fw.acts);
+  requestAnimationFrame(watchLoop);
+}
+
+/* ================= NET VIZ ================= */
+const nc=document.getElementById('netCanvas'), nctx=nc.getContext('2d');
+function drawNet(acts){
+  nctx.fillStyle='#fff'; nctx.fillRect(0,0,nc.width,nc.height);
+  const sh=shape, L=sh.length;
+  const xs=i=>40+i*(nc.width-80)/(L-1);
+  const ys=(l,j)=>nc.height/2 + (j-(sh[l]-1)/2)*Math.min(20, (nc.height-30)/sh[l]);
+  // weights (sampled if huge)
+  let k=0;
+  for(let l=1;l<L;l++){
+    for(let j=0;j<sh[l];j++){
+      k++; // bias
+      for(let i=0;i<sh[l-1];i++){
+        const w=pop.length?best[k++]:0;
+        if(Math.abs(w)<0.35) continue; // draw only strong weights
+        nctx.strokeStyle=w>0?'rgba(0,100,0,.35)':'rgba(170,0,0,.35)';
+        nctx.lineWidth=Math.min(2.5,Math.abs(w));
+        nctx.beginPath(); nctx.moveTo(xs(l-1),ys(l-1,i)); nctx.lineTo(xs(l),ys(l,j)); nctx.stroke();
+      }
+    }
+  }
+  // neurons
+  const inLbl=['obst','pit','enemy','coin','vy'], outLbl=['idle','left','right','jump','jmp+R'];
+  for(let l=0;l<L;l++){
+    for(let j=0;j<sh[l];j++){
+      const a=acts?acts[l][j]:0;
+      const v=Math.max(-1,Math.min(1,a));
+      nctx.fillStyle = v>0? `rgb(${230-180*v|0},${230},${230-180*v|0})` : `rgb(230,${230+180*v|0},${230+180*v|0})`;
+      nctx.beginPath(); nctx.arc(xs(l),ys(l,j),6,0,7); nctx.fill();
+      nctx.strokeStyle='#111'; nctx.lineWidth=1; nctx.stroke();
+    }
+  }
+  nctx.fillStyle='#111'; nctx.font='11px Courier New';
+  for(let j=0;j<N_IN;j++) nctx.fillText(inLbl[j], 2, ys(0,j)+4);
+  for(let j=0;j<N_OUT;j++) nctx.fillText(outLbl[j], xs(L-1)+10, ys(L-1,j)+4);
+}
+
+/* ================= CHART ================= */
+const cc=document.getElementById('chartCanvas'), cctx=cc.getContext('2d');
+function drawChart(){
+  cctx.fillStyle='#fff'; cctx.fillRect(0,0,cc.width,cc.height);
+  cctx.strokeStyle='#111'; cctx.strokeRect(0.5,0.5,cc.width-1,cc.height-1);
+  if(!history.length){
+    cctx.fillStyle='#999'; cctx.font='12px Courier New';
+    cctx.fillText('no data yet - press TRAIN', 10, 20);
+    return;
+  }
+  const max=Math.max(...history.map(h=>h.best),1);
+  const X=i=>10+(cc.width-20)*i/Math.max(1,history.length-1);
+  const Y=v=>cc.height-12-(cc.height-30)*v/max;
+  const line=(key,col)=>{
+    cctx.strokeStyle=col; cctx.lineWidth=1.5; cctx.beginPath();
+    history.forEach((h,i)=>{ i? cctx.lineTo(X(i),Y(h[key])) : cctx.moveTo(X(i),Y(h[key])); });
+    cctx.stroke();
+  };
+  line('avg','#999'); line('best','#111');
+  cctx.fillStyle='#111'; cctx.font='11px Courier New';
+  cctx.fillText(max|0, 12, 14);
+  cctx.fillText('gen '+history.length, cc.width-70, cc.height-6);
+}
+
+/* ================= UI ================= */
+const $=id=>document.getElementById(id);
+function refreshShapeUI(){
+  $('nLayersV').textContent=hiddenLayers;
+  $('nSizeV').textContent=layerSize;
+  $('wCount').textContent=weightCount(netShape());
+}
+$('nLayers').oninput=e=>{ hiddenLayers=+e.target.value; refreshShapeUI(); stopAll(); resetPopulation(); };
+$('nSize').oninput=e=>{ layerSize=+e.target.value; refreshShapeUI(); stopAll(); resetPopulation(); };
+
+function stopAll(){ training=false; watching=false; setMode('idle'); $('btnTrain').textContent='TRAIN'; }
+
+$('btnTrain').onclick=()=>{
+  if(training){ stopAll(); drawNet(null); return; }
+  watching=false;
+  training=true; $('btnTrain').textContent='STOP';
+  setMode('training...');
+  trainLoop();
+};
+$('btnWatch').onclick=()=>{
+  stopAll();
+  watching=true; watchRun=null; setMode('watching best');
+  watchLoop();
+};
+$('btnLevel').onclick=()=>{
+  stopAll();
+  levelSeed=(Math.random()*1e9)|0;
+  level=buildLevel(levelSeed);
+  resetPopulation();
+  drawGame(newRun());
+};
+
+/* ================= INIT ================= */
+level=buildLevel(levelSeed);
+refreshShapeUI();
+resetPopulation();
+drawGame(newRun());
+drawNet(null);
+drawChart();
+</script>
+</body>
+</html>

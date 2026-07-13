@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tiny-mario-rl</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h1>TINY-MARIO-RL</h1>
+<p class="sub">a very small neural network learns to run right // genetic algorithm, no libraries</p>
+
+<div class="panel">
+  <h2>1. ai inputs</h2>
+  <div id="inputList" class="row"></div>
+  <div class="row" style="margin-top:8px">
+    <label>grid width <input id="gridWidth" type="number" min="1" max="8" value="4"></label>
+    <label>grid height <input id="gridHeight" type="number" min="1" max="6" value="3"></label>
+    <span class="legend">grid = tiles in front of the player (solid / hazard / coin), used when "tile grid" is checked</span>
+  </div>
+  <p class="legend">changing inputs resets the network &mdash; the input layer size changes</p>
+</div>
+
+<div class="panel">
+  <h2>2. network</h2>
+  <div class="row">
+    <label>hidden layers <input id="hiddenLayers" type="range" min="1" max="20" value="3"> <span id="hiddenLayersValue">3</span></label>
+    <label>neurons / layer <input id="layerSize" type="range" min="5" max="20" value="10"> <span id="layerSizeValue">10</span></label>
+    <span class="stats">inputs: <b id="inputCount">?</b> &nbsp; weights: <b id="weightCount">?</b></span>
+  </div>
+  <p class="legend">outputs: idle / left / right / jump / jump+right (argmax)</p>
+  <canvas id="networkCanvas" width="940" height="220"></canvas>
+</div>
+
+<div class="panel">
+  <h2>3. training</h2>
+  <div class="row" style="margin-bottom:8px">
+    <label>population <input id="populationSize" type="range" min="20" max="200" value="60"> <span id="populationSizeValue">60</span></label>
+    <label>threads <input id="threadCount" type="range" min="1" max="16" value="4"> <span id="threadCountValue">4</span></label>
+    <label>fit last <input id="mapWindow" type="number" min="1" max="50" value="10"> maps</label>
+  </div>
+  <div class="row" style="margin-bottom:8px">
+    <span class="stats">fitness rewards:</span>
+    <label>coin <input id="rewardCoin" type="number" step="1" value="20"></label>
+    <label>enemy kill <input id="rewardKill" type="number" step="1" value="5"></label>
+    <label>death <input id="rewardDeath" type="number" step="10" value="-10"></label>
+    <label>jump <input id="rewardJump" type="number" step="1" value="-1"></label>
+    <label>distance <input id="rewardDistance" type="number" step="100" value="1000"></label>
+    <label>time / sec <input id="rewardTime" type="number" step="0.1" value="-1"></label>
+  </div>
+  <p class="legend">distance = points for reaching the flag, scaled by progress (1000 &rarr; 1% of the level = 10 points) &nbsp;&middot;&nbsp; time is charged per second</p>
+  <div class="row" style="margin-bottom:8px">
+    <button id="buttonTrain">TRAIN</button>
+    <button id="buttonWatch">WATCH BEST</button>
+    <button id="buttonLevel">NEW LEVEL</button>
+    <span class="stats">gen <b id="generationValue">0</b> &nbsp; best <b id="bestValue">0</b> &nbsp; <span id="modeValue">idle</span></span>
+  </div>
+  <p class="legend">a new map is generated every generation; each genome is scored on the average of the last X maps, so the brain must generalize &mdash; NEW LEVEL injects a fresh map immediately</p>
+  <canvas id="gameCanvas" width="940" height="240"></canvas>
+  <p class="legend">hazards: pit / spike / enemy = death (goombas &amp; flyers can be stomped, red spinies cannot) &nbsp;&middot;&nbsp; springs bounce high &nbsp;&middot;&nbsp; reach the flag to win</p>
+</div>
+
+<div class="panel">
+  <h2>4. progress</h2>
+  <canvas id="chartCanvas" width="940" height="180"></canvas>
+  <p class="legend"><i style="color:#111">&#9644; best fitness</i> <i style="color:#999">&#9644; population average</i> <i style="color:#1565c0">&#9644; benchmark (best model on the hidden fixed level, never trained on)</i> per generation</p>
+</div>
+
+<script src="js/neuralNetwork.js"></script>
+<script src="js/simulation.js"></script>
+<script src="js/level.js"></script>
+<script src="js/genetics.js"></script>
+<script src="js/trainer.js"></script>
+<script src="js/rendering.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
