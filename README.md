@@ -1,8 +1,8 @@
-# tiny-mario-rl
+# ai-mario
 
 Watch a tiny artificial "brain" teach itself to play a Mario-style platformer, right in your browser.
 
-**▶️ [Open the live demo](https://ebrithilnogare.github.io/RL-Mario/)**
+**▶️ [Open the live demo](https://ebrithilnogare.github.io/AI-Mario/)**
 
 ## What is this?
 
@@ -10,7 +10,7 @@ Little characters keep trying to run through a level full of pipes, pits, spikes
 
 ## How to use it
 
-1. Open the [demo](https://ebrithilnogare.github.io/RL-Mario/).
+1. Open the [demo](https://ebrithilnogare.github.io/AI-Mario/).
 2. Press **TRAIN** and watch the graph climb as the brains improve.
 3. Press **WATCH BEST** any time to see the current best player run a level.
 4. Press **NEW LEVEL** to throw a fresh, unseen level at them.
