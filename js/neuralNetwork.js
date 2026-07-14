@@ -20,21 +20,58 @@ function createNeuralNetworkModule() {
     return genome;
   }
 
-  function forward(genome, shape, input, keepActivations) {
+  function forward(genome, shape, input, keepActivations, linearOutput) {
     let activation = input;
     let k = 0;
     const activations = keepActivations ? [input.slice()] : null;
     for (let layer = 1; layer < shape.length; layer++) {
+      const isOutputLayer = layer === shape.length - 1;
       const output = new Float32Array(shape[layer]);
       for (let j = 0; j < shape[layer]; j++) {
         let sum = genome[k++];
         for (let i = 0; i < shape[layer - 1]; i++) sum += genome[k++] * activation[i];
-        output[j] = Math.tanh(sum);
+        output[j] = linearOutput && isOutputLayer ? sum : Math.tanh(sum);
       }
       activation = output;
       if (keepActivations) activations.push(activation);
     }
     return { output: activation, activations };
+  }
+
+  function forwardTrain(genome, shape, input, linearOutput) {
+    return forward(genome, shape, input, true, linearOutput).activations;
+  }
+
+  // Accumulates dLoss/dWeight into `gradients` (same layout as genome).
+  // outputGradient = dLoss/d(output activation).
+  function backward(genome, shape, activations, outputGradient, gradients, linearOutput) {
+    let delta = Float32Array.from(outputGradient);
+    if (!linearOutput) {
+      const output = activations[shape.length - 1];
+      for (let j = 0; j < delta.length; j++) delta[j] *= 1 - output[j] * output[j];
+    }
+    const offsets = [0];
+    for (let layer = 1; layer < shape.length; layer++) {
+      offsets.push(offsets[layer - 1] + shape[layer] * (shape[layer - 1] + 1));
+    }
+    for (let layer = shape.length - 1; layer >= 1; layer--) {
+      const previous = activations[layer - 1];
+      const previousDelta = new Float32Array(shape[layer - 1]);
+      let k = offsets[layer - 1];
+      for (let j = 0; j < shape[layer]; j++) {
+        const d = delta[j];
+        gradients[k++] += d;
+        for (let i = 0; i < shape[layer - 1]; i++) {
+          gradients[k] += d * previous[i];
+          previousDelta[i] += genome[k] * d;
+          k++;
+        }
+      }
+      if (layer > 1) {
+        for (let i = 0; i < previousDelta.length; i++) previousDelta[i] *= 1 - previous[i] * previous[i];
+      }
+      delta = previousDelta;
+    }
   }
 
   function argmax(values) {
@@ -43,5 +80,5 @@ function createNeuralNetworkModule() {
     return bestIndex;
   }
 
-  return { buildShape, weightCount, randomGenome, forward, argmax };
+  return { buildShape, weightCount, randomGenome, forward, forwardTrain, backward, argmax };
 }

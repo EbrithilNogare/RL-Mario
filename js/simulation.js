@@ -372,11 +372,23 @@ function createSimulationModule(NeuralNetwork) {
     };
   }
 
-  function evaluate(genome, shape, level, sensorReader, rewards) {
+  // actionMap translates a network output index to a global action index
+  // (the output layer only has neurons for the enabled actions).
+  function evaluate(genome, shape, level, sensorReader, rewards, actionMap) {
     const state = newRun(level);
     while (!state.dead) {
       const result = NeuralNetwork.forward(genome, shape, sensorReader.read(state, level), false);
-      step(state, level, NeuralNetwork.argmax(result.output));
+      const choice = NeuralNetwork.argmax(result.output);
+      step(state, level, actionMap ? actionMap[choice] : choice);
+    }
+    return fitness(state, level, rewards);
+  }
+
+  // Same as evaluate, but for any policy: act(sensorVector) -> actionIndex.
+  function evaluateWith(act, level, sensorReader, rewards) {
+    const state = newRun(level);
+    while (!state.dead) {
+      step(state, level, act(sensorReader.read(state, level)));
     }
     return fitness(state, level, rewards);
   }
@@ -386,6 +398,6 @@ function createSimulationModule(NeuralNetwork) {
     OUTPUT_COUNT, OUTPUT_LABELS,
     INPUT_DEFINITIONS, DEFAULT_REWARDS,
     newRun, step, fitness, groundAt, solidAt,
-    createSensorReader, evaluate
+    createSensorReader, evaluate, evaluateWith
   };
 }

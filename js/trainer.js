@@ -1,12 +1,13 @@
 "use strict";
 
-function createTrainerModule(Simulation) {
+function createTrainerModule(Simulation, NeuralNetwork, NEAT) {
   function buildWorkerSource() {
     return [
       '"use strict";',
       `const NeuralNetwork = (${createNeuralNetworkModule.toString()})();`,
       `const Simulation = (${createSimulationModule.toString()})(NeuralNetwork);`,
-      "let levels = [], shape = null, sensorReader = null, rewards = null;",
+      `const NEAT = (${createNeatModule.toString()})();`,
+      "let levels = [], shape = null, sensorReader = null, rewards = null, algorithm = 'ga', actionMap = null;",
       "onmessage = (event) => {",
       "  const message = event.data;",
       "  if (message.type === 'configure') {",
@@ -14,12 +15,20 @@ function createTrainerModule(Simulation) {
       "    shape = message.shape;",
       "    sensorReader = Simulation.createSensorReader(message.inputConfig);",
       "    rewards = message.rewards;",
+      "    algorithm = message.algorithm;",
+      "    actionMap = message.actionMap;",
       "    return;",
       "  }",
       "  const fitnesses = new Float64Array(message.genomes.length);",
       "  for (let i = 0; i < message.genomes.length; i++) {",
       "    let sum = 0;",
-      "    for (let m = 0; m < levels.length; m++) sum += Simulation.evaluate(message.genomes[i], shape, levels[m], sensorReader, rewards);",
+      "    if (algorithm === 'neat') {",
+      "      const network = NEAT.buildNetwork(message.genomes[i]);",
+      "      const act = vector => actionMap[NeuralNetwork.argmax(network.activate(vector))];",
+      "      for (let m = 0; m < levels.length; m++) sum += Simulation.evaluateWith(act, levels[m], sensorReader, rewards);",
+      "    } else {",
+      "      for (let m = 0; m < levels.length; m++) sum += Simulation.evaluate(message.genomes[i], shape, levels[m], sensorReader, rewards, actionMap);",
+      "    }",
       "    fitnesses[i] = levels.length ? sum / levels.length : 0;",
       "  }",
       "  postMessage({ jobId: message.jobId, fitnesses }, [fitnesses.buffer]);",
@@ -36,6 +45,7 @@ function createTrainerModule(Simulation) {
       this.shape = null;
       this.sensorReader = null;
       this.rewards = null;
+      this.algorithm = "ga";
       try {
         const url = URL.createObjectURL(new Blob([buildWorkerSource()], { type: "text/javascript" }));
         for (let i = 0; i < threadCount; i++) {
@@ -66,13 +76,15 @@ function createTrainerModule(Simulation) {
       }
     }
 
-    configure(levels, shape, inputConfig, rewards) {
+    configure(levels, shape, inputConfig, rewards, algorithm, actionMap) {
       this.levels = levels;
       this.shape = shape;
       this.sensorReader = Simulation.createSensorReader(inputConfig);
       this.rewards = rewards;
+      this.algorithm = algorithm;
+      this.actionMap = actionMap;
       for (const worker of this.workers) {
-        worker.postMessage({ type: "configure", levels, shape, inputConfig, rewards });
+        worker.postMessage({ type: "configure", levels, shape, inputConfig, rewards, algorithm, actionMap });
       }
     }
 
@@ -80,8 +92,16 @@ function createTrainerModule(Simulation) {
       const fitnesses = new Float64Array(genomes.length);
       for (let i = 0; i < genomes.length; i++) {
         let sum = 0;
-        for (const level of this.levels) {
-          sum += Simulation.evaluate(genomes[i], this.shape, level, this.sensorReader, this.rewards);
+        if (this.algorithm === "neat") {
+          const network = NEAT.buildNetwork(genomes[i]);
+          const act = vector => this.actionMap[NeuralNetwork.argmax(network.activate(vector))];
+          for (const level of this.levels) {
+            sum += Simulation.evaluateWith(act, level, this.sensorReader, this.rewards);
+          }
+        } else {
+          for (const level of this.levels) {
+            sum += Simulation.evaluate(genomes[i], this.shape, level, this.sensorReader, this.rewards, this.actionMap);
+          }
         }
         fitnesses[i] = this.levels.length ? sum / this.levels.length : 0;
       }

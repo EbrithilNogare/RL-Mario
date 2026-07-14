@@ -66,6 +66,104 @@ canvas {
   max-width: 100%;
 }
 
+.algo-button.active { background: var(--ink); color: #fff; }
+
+.algo-hidden { display: none !important; }
+
+.tip {
+  position: relative;
+  cursor: help;
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 1;
+  margin-left: 1px;
+  align-self: flex-start;
+}
+.tip:hover { color: var(--ink); }
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 230px;
+  background: #fff;
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 1.35;
+  white-space: normal;
+  display: none;
+  z-index: 20;
+}
+.tip:hover::after { display: block; }
+
+/* narrow screens: overlay pinned to the right edge; wide screens get
+   .help-docked (positioned by JS next to the content, sections aligned
+   with their panels) */
+.help-panel {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: 320px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 12px;
+  font-size: 12px;
+  z-index: 10;
+}
+.help-panel.help-docked {
+  position: absolute;
+  right: auto;
+  bottom: auto;
+  overflow: visible;
+  padding: 0;
+}
+.help-docked .help-section {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  overflow-y: auto;
+}
+.help-panel h2 { margin-bottom: 6px; padding-right: 24px; }
+.help-panel h3 { font-size: 12px; text-transform: uppercase; margin: 10px 0 4px; }
+.help-docked .help-section h3 { margin-top: 0; }
+.help-panel .help-section + .help-section h3 { border-top: 1px solid var(--dim); padding-top: 8px; }
+.help-docked .help-section + .help-section h3 { border-top: none; padding-top: 0; }
+.help-docked .help-section p:last-child,
+.help-docked .help-method p { margin-bottom: 0; }
+.help-panel p { margin-bottom: 6px; color: #333; }
+.help-panel b { color: var(--ink); }
+.help-panel i { color: var(--dim); }
+
+.help-method { display: none; }
+.help-method.help-active { display: block; }
+
+.help-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 0 8px;
+  font-size: 16px;
+  line-height: 22px;
+  z-index: 11;
+}
+
+.help-open {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+}
+
+.help-hidden { display: none !important; }
+
 .stats { color: var(--dim); }
 .stats b { color: var(--ink); }
 

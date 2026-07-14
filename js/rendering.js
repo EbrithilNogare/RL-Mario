@@ -169,16 +169,17 @@ function createRenderingModule(Simulation) {
   }
 
   function drawDebugPanel(state, debug) {
+    const labels = debug.labels || OUTPUT_LABELS;
     gameContext.fillStyle = "rgba(255,255,255,0.75)";
-    gameContext.fillRect(4, 22, 210, 14 + OUTPUT_LABELS.length * 12);
+    gameContext.fillRect(4, 22, 210, 14 + labels.length * 12);
     gameContext.fillStyle = "#111";
     gameContext.font = "10px Courier New";
     gameContext.fillText("fitness " + (debug.fitness | 0) + "   action: " + debug.actionLabel, 8, 33);
-    for (let i = 0; i < OUTPUT_LABELS.length; i++) {
+    for (let i = 0; i < labels.length; i++) {
       const value = debug.outputs[i];
       const y = 40 + i * 12;
-      gameContext.fillStyle = i === debug.actionIndex ? "#111" : "#777";
-      gameContext.fillText(OUTPUT_LABELS[i].padEnd(5), 8, y + 8);
+      gameContext.fillStyle = i === debug.chosenIndex ? "#111" : "#777";
+      gameContext.fillText(labels[i].padEnd(5), 8, y + 8);
       const barOrigin = 100;
       const barLength = value * 50;
       gameContext.fillStyle = value >= 0 ? "#2e7d32" : "#aa0000";
@@ -313,7 +314,8 @@ function createRenderingModule(Simulation) {
     }
   }
 
-  function drawNetwork(shape, genome, activations, inputLabels) {
+  function drawNetwork(shape, genome, activations, inputLabels, outputLabels) {
+    outputLabels = outputLabels || OUTPUT_LABELS;
     networkContext.fillStyle = "#fff";
     networkContext.fillRect(0, 0, networkCanvas.width, networkCanvas.height);
     const layerCount = shape.length;
@@ -379,7 +381,89 @@ function createRenderingModule(Simulation) {
     networkContext.font = "11px Courier New";
     for (let j = 0; j < shape[outputLayer]; j++) {
       networkContext.fillStyle = j === chosenOutput ? "#c62828" : "#111";
-      networkContext.fillText(OUTPUT_LABELS[j], layerX(outputLayer) + 10, neuronY(outputLayer, j) + 4);
+      networkContext.fillText(outputLabels[j] || "", layerX(outputLayer) + 10, neuronY(outputLayer, j) + 4);
+    }
+  }
+
+  // Draws a NEAT genome as a free-form graph: columns by node depth.
+  // `values` (per-node activations, indexed like graph.nodes) may be null.
+  function drawNeatNetwork(graph, values, inputLabels, outputLabels) {
+    outputLabels = outputLabels || OUTPUT_LABELS;
+    networkContext.fillStyle = "#fff";
+    networkContext.fillRect(0, 0, networkCanvas.width, networkCanvas.height);
+    const { nodes, depth, maxDepth, links, inputCount } = graph;
+
+    const columns = new Map();
+    for (let i = 0; i < nodes.length; i++) {
+      if (!columns.has(depth[i])) columns.set(depth[i], []);
+      columns.get(depth[i]).push(i);
+    }
+    const positions = new Array(nodes.length);
+    for (const [columnDepth, column] of columns) {
+      column.sort((a, b) => nodes[a].id - nodes[b].id);
+      const spacing = Math.min(20, (networkCanvas.height - 30) / column.length);
+      column.forEach((nodeIndex, row) => {
+        positions[nodeIndex] = {
+          x: 60 + (networkCanvas.width - 130) * columnDepth / maxDepth,
+          y: networkCanvas.height / 2 + (row - (column.length - 1) / 2) * spacing
+        };
+      });
+    }
+    const indexById = new Map(nodes.map((node, index) => [node.id, index]));
+
+    for (const link of links) {
+      const from = positions[indexById.get(link.inNode)];
+      const to = positions[indexById.get(link.outNode)];
+      if (!from || !to) continue;
+      networkContext.strokeStyle = link.weight > 0 ? "rgba(0,100,0,.4)" : "rgba(170,0,0,.4)";
+      networkContext.lineWidth = Math.max(0.5, Math.min(2.5, Math.abs(link.weight)));
+      networkContext.beginPath();
+      networkContext.moveTo(from.x, from.y);
+      networkContext.lineTo(to.x, to.y);
+      networkContext.stroke();
+    }
+
+    let chosenOutput = -1;
+    if (values) {
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].type !== "output") continue;
+        if (chosenOutput === -1 || values[i] > values[chosenOutput]) chosenOutput = i;
+      }
+    }
+
+    const radius = nodes.length > 24 ? 4 : 6;
+    for (let i = 0; i < nodes.length; i++) {
+      const activation = values ? values[i] : 0;
+      const value = Math.max(-1, Math.min(1, activation));
+      networkContext.fillStyle = value > 0
+        ? `rgb(${230 - 180 * value | 0},230,${230 - 180 * value | 0})`
+        : `rgb(230,${230 + 180 * value | 0},${230 + 180 * value | 0})`;
+      networkContext.beginPath();
+      networkContext.arc(positions[i].x, positions[i].y, radius, 0, 7);
+      networkContext.fill();
+      networkContext.strokeStyle = nodes[i].type === "hidden" ? "#7b1fa2" : "#111";
+      networkContext.lineWidth = 1;
+      networkContext.stroke();
+      if (i === chosenOutput) {
+        networkContext.strokeStyle = "#c62828";
+        networkContext.lineWidth = 2;
+        networkContext.beginPath();
+        networkContext.arc(positions[i].x, positions[i].y, radius + 3, 0, 7);
+        networkContext.stroke();
+      }
+    }
+
+    networkContext.fillStyle = "#111";
+    networkContext.font = nodes.length > 20 ? "8px Courier New" : "11px Courier New";
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].type === "bias") networkContext.fillText("bias", 2, positions[i].y + 3);
+      else if (nodes[i].type === "input") networkContext.fillText(inputLabels[nodes[i].id - 1] || "", 2, positions[i].y + 3);
+    }
+    networkContext.font = "11px Courier New";
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].type !== "output") continue;
+      networkContext.fillStyle = i === chosenOutput ? "#c62828" : "#111";
+      networkContext.fillText(outputLabels[nodes[i].id - 1 - inputCount] || "", positions[i].x + 10, positions[i].y + 4);
     }
   }
 
@@ -436,5 +520,5 @@ function createRenderingModule(Simulation) {
     chartContext.fillText("gen " + history.length, chartCanvas.width - 70, chartCanvas.height - 6);
   }
 
-  return { drawGame, drawNetwork, drawChart };
+  return { drawGame, drawNetwork, drawNeatNetwork, drawChart };
 }
