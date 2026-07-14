@@ -20,7 +20,27 @@ function createNeuralNetworkModule() {
     return genome;
   }
 
-  function forward(genome, shape, input, keepActivations, linearOutput) {
+  function gaussian() {
+    return Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+  }
+
+  // He initialization — the right scale for gradient training with ReLU.
+  function heGenome(shape) {
+    const genome = new Float32Array(weightCount(shape));
+    let k = 0;
+    for (let layer = 1; layer < shape.length; layer++) {
+      const std = Math.sqrt(2 / shape[layer - 1]);
+      for (let j = 0; j < shape[layer]; j++) {
+        genome[k++] = 0; // bias
+        for (let i = 0; i < shape[layer - 1]; i++) genome[k++] = gaussian() * std;
+      }
+    }
+    return genome;
+  }
+
+  // linearOutput: no squash on the last layer (for Q-values).
+  // reluHidden: ReLU instead of tanh on hidden layers (for gradient training).
+  function forward(genome, shape, input, keepActivations, linearOutput, reluHidden) {
     let activation = input;
     let k = 0;
     const activations = keepActivations ? [input.slice()] : null;
@@ -30,7 +50,8 @@ function createNeuralNetworkModule() {
       for (let j = 0; j < shape[layer]; j++) {
         let sum = genome[k++];
         for (let i = 0; i < shape[layer - 1]; i++) sum += genome[k++] * activation[i];
-        output[j] = linearOutput && isOutputLayer ? sum : Math.tanh(sum);
+        if (isOutputLayer) output[j] = linearOutput ? sum : Math.tanh(sum);
+        else output[j] = reluHidden ? (sum > 0 ? sum : 0) : Math.tanh(sum);
       }
       activation = output;
       if (keepActivations) activations.push(activation);
@@ -38,13 +59,13 @@ function createNeuralNetworkModule() {
     return { output: activation, activations };
   }
 
-  function forwardTrain(genome, shape, input, linearOutput) {
-    return forward(genome, shape, input, true, linearOutput).activations;
+  function forwardTrain(genome, shape, input, linearOutput, reluHidden) {
+    return forward(genome, shape, input, true, linearOutput, reluHidden).activations;
   }
 
   // Accumulates dLoss/dWeight into `gradients` (same layout as genome).
   // outputGradient = dLoss/d(output activation).
-  function backward(genome, shape, activations, outputGradient, gradients, linearOutput) {
+  function backward(genome, shape, activations, outputGradient, gradients, linearOutput, reluHidden) {
     let delta = Float32Array.from(outputGradient);
     if (!linearOutput) {
       const output = activations[shape.length - 1];
@@ -68,7 +89,9 @@ function createNeuralNetworkModule() {
         }
       }
       if (layer > 1) {
-        for (let i = 0; i < previousDelta.length; i++) previousDelta[i] *= 1 - previous[i] * previous[i];
+        for (let i = 0; i < previousDelta.length; i++) {
+          previousDelta[i] *= reluHidden ? (previous[i] > 0 ? 1 : 0) : 1 - previous[i] * previous[i];
+        }
       }
       delta = previousDelta;
     }
@@ -80,5 +103,5 @@ function createNeuralNetworkModule() {
     return bestIndex;
   }
 
-  return { buildShape, weightCount, randomGenome, forward, forwardTrain, backward, argmax };
+  return { buildShape, weightCount, randomGenome, heGenome, forward, forwardTrain, backward, argmax };
 }

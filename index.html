@@ -1,155 +1,165 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ai-mario</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ai-mario</title>
+  <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
+  <h1>AI MARIO</h1>
+  <button id="helpOpen" class="help-open help-hidden">? HELP</button>
 
-<h1>AI MARIO</h1>
-<p class="sub">a very small neural network learns to run right // genetic algorithm &middot; neat &middot; deep q-learning, no libraries</p>
-
-<button id="helpOpen" class="help-open help-hidden">? HELP</button>
-
-<aside id="helpPanel" class="help-panel">
-  <button id="helpClose" class="help-close" title="close">&times;</button>
-  <div class="help-section" id="helpIntro">
-    <h2>what is this?</h2>
-    <p>a mario game nobody programmed &mdash; a neural network learns to play it.</p>
-  </div>
-  <div class="help-section" data-help-for="panelMethod">
-    <h3>1. learning method</h3>
-    <div class="help-method" data-help-algo="ga">
-      <p><b>genetic algorithm</b> &mdash; a population of brains; each generation the best are kept, crossed and mutated. parallel and fast, improves in visible jumps, but only learns from the final score.</p>
+  <aside id="helpPanel" class="help-panel">
+    <button id="helpClose" class="help-close" title="close">&times;</button>
+    <div class="help-section" id="helpIntro">
+      <p>an AI learns to play mario.</p>
     </div>
-    <div class="help-method" data-help-algo="neat">
-      <p><b>neat</b> &mdash; evolution where the <i>wiring</i> evolves too: brains start minimal and grow neurons &amp; connections, species protect new ideas. slower to take off, but finds small, clever brains.</p>
+    <div class="help-section" data-help-for="panelMethod">
+      <h3>1. learning method</h3>
+      <div class="help-method" data-help-algo="ga">
+        <p><b>ga</b> &mdash; best brains are kept, crossed and mutated; learns only from the final score.</p>
+      </div>
+      <div class="help-method" data-help-algo="neat">
+        <p><b>neat</b> &mdash; the <i>wiring</i> evolves too: minimal brains grow neurons &amp; connections.</p>
+      </div>
+      <div class="help-method" data-help-algo="rl">
+        <p><b>dqn</b> &mdash; one brain learns <i>while</i> playing; &epsilon; = how randomly it acts.</p>
+      </div>
     </div>
-    <div class="help-method" data-help-algo="rl">
-      <p><b>reinforcement learning (dqn)</b> &mdash; one brain learns <i>while</i> playing: each step&rsquo;s reward nudges the weights by backpropagation. slower and noisier, but learns from every step &mdash; &epsilon; = how randomly it still acts.</p>
+    <div class="help-section" data-help-for="panelInputs">
+      <h3>2. ai inputs</h3>
+      <p>what the AI can sense. more inputs = more information but a bigger, slower network &mdash; a few well-chosen senses learn fastest.</p>
+      <p><b>tile grid</b> = tiles in front, marked solid / hazard / coin &mdash; the richest input.</p>
+      <p>changing inputs resets all networks &mdash; the input layer size changes.</p>
+    </div>
+    <div class="help-section" data-help-for="panelOutputs">
+      <h3>3. ai outputs</h3>
+      <p>the network picks one action each frame; fewer = faster learning. changing them resets all networks.</p>
+    </div>
+    <div class="help-section" data-help-for="panelNetwork">
+      <h3>4. network</h3>
+      <p>the size of the brain. more layers / neurons can express smarter behavior, but train slower and may overfit the training maps. for neat the topology is not yours to set &mdash; it grows nodes &amp; connections by mutation, starting
+        from inputs wired straight to outputs.</p>
+      <p>the picture shows the current best brain: green = positive weight, red = negative; node color = activation while watching.</p>
+    </div>
+    <div class="help-section" data-help-for="panelTraining">
+      <h3>5. training</h3>
+      <p><b>rewards</b> shape personality: raise coin and it detours for coins; punish jumps and it hops only when needed. all three methods optimize this same score (the dqn receives it per step). <b>distance</b> is scaled by progress
+        (1000 &rarr; 1% of the level = 10 points) &middot; <b>time</b> is charged per second.</p>
+      <p><b>fit last X maps</b>: a fresh random level is added every generation/iteration and scores are averaged over the last X, forcing it to generalize instead of memorizing.</p>
+      <p class="help-method" data-help-algo="neat">the species compatibility threshold self-adjusts to hold roughly the target number of species.</p>
+      <p class="help-method" data-help-algo="rl">episodes rotate through the last X maps while the agent learns from per-step rewards with &epsilon;-greedy exploration (&epsilon; shown in the stats decays as it learns).</p>
+      <p><b>train</b> runs until you stop it &middot; <b>watch best</b> replays the best brain with its senses drawn &middot; <b>new level</b> injects an unseen map.</p>
+      <p>hazards: pit / spike / enemy = death (goombas &amp; flyers can be stomped, red spinies cannot) &middot; springs bounce high &middot; reach the flag to win.</p>
+    </div>
+    <div class="help-section" data-help-for="panelProgress">
+      <h3>6. progress</h3>
+      <p><i style="color:#111">&#9644;</i> black = best score &middot; <i style="color:#999">&#9644;</i> grey = population / episode average &middot; <i style="color:#1565c0">&#9644;</i> blue = benchmark: the best brain on a hidden level it
+        never trains on, per generation / iteration &mdash; each method keeps its own history.</p>
+      <p>if black climbs but blue doesn&rsquo;t, it is memorizing, not learning.</p>
+    </div>
+  </aside>
+
+  <div class="panel" id="panelMethod">
+    <h2>1. learning method</h2>
+    <div class="row">
+      <button id="algo_ga" class="algo-button active">GENETIC ALGORITHM</button>
+      <button id="algo_neat" class="algo-button">NEAT</button>
+      <button id="algo_rl" class="algo-button">REINFORCEMENT (DQN)</button>
     </div>
   </div>
-  <div class="help-section" data-help-for="panelInputs">
-    <h3>2. ai inputs</h3>
-    <p>what the AI can sense. more inputs = more information, but a bigger network that runs slower and needs more training to make sense of it. a few well-chosen senses often learn fastest.</p>
-  </div>
-  <div class="help-section" data-help-for="panelOutputs">
-    <h3>3. ai outputs</h3>
-    <p>actions it may use. fewer = smaller search space = faster learning. jump+right is a helper combo &mdash; enable it to make crossing obstacles much easier.</p>
-  </div>
-  <div class="help-section" data-help-for="panelNetwork">
-    <h3>4. network</h3>
-    <p>the size of the brain. more layers / neurons can express smarter behavior, but train slower and may overfit the training maps. for neat the topology is not yours to set &mdash; it grows on its own.</p>
-    <p>the picture shows the current best brain: green = positive weight, red = negative; node color = activation while watching.</p>
-  </div>
-  <div class="help-section" data-help-for="panelTraining">
-    <h3>5. training</h3>
-    <p><b>rewards</b> shape personality: raise coin and it detours for coins; punish jumps and it hops only when needed. all three methods optimize this same score (the dqn receives it per step).</p>
-    <p><b>fit last X maps</b>: a fresh random level is added every generation/iteration and scores are averaged over the last X, forcing it to generalize instead of memorizing.</p>
-    <p><b>train</b> runs until you stop it &middot; <b>watch best</b> replays the best brain with its senses drawn &middot; <b>new level</b> injects an unseen map.</p>
-  </div>
-  <div class="help-section" data-help-for="panelProgress">
-    <h3>6. progress</h3>
-    <p>black = best score &middot; grey = average &middot; blue = benchmark: the best brain on a hidden level it never trains on. if black climbs but blue doesn&rsquo;t, it is memorizing, not learning.</p>
-  </div>
-</aside>
 
-<div class="panel" id="panelMethod">
-  <h2>1. learning method</h2>
-  <div class="row">
-    <button id="algo_ga" class="algo-button active">GENETIC ALGORITHM</button>
-    <button id="algo_neat" class="algo-button">NEAT</button>
-    <button id="algo_rl" class="algo-button">REINFORCEMENT (DQN)</button>
+  <div class="panel" id="panelInputs">
+    <h2>2. ai inputs</h2>
+    <div class="row input-row"><span class="input-group-label">player</span><span id="inputGroup_player" class="row"></span></div>
+    <div class="row input-row"><span class="input-group-label">terrain</span><span id="inputGroup_terrain" class="row"></span></div>
+    <div class="row input-row"><span class="input-group-label">enemies</span><span id="inputGroup_enemies" class="row"></span></div>
+    <div class="row input-row"><span class="input-group-label">coins</span><span id="inputGroup_coins" class="row"></span></div>
+    <div class="row input-row">
+      <span class="input-group-label">grid</span>
+      <span id="inputGroup_grid" class="row"></span>
+      <label>grid width<sup class="tip" data-tip="how many tile columns ahead of the player the tile grid senses">?</sup> <input id="gridWidth" type="number" min="1" max="8" value="4"></label>
+      <label>grid height<sup class="tip" data-tip="how many tile rows above the ground the tile grid senses">?</sup> <input id="gridHeight" type="number" min="1" max="6" value="3"></label>
+    </div>
   </div>
-  <p class="legend" id="algoDescription">evolves a fixed-size network by selection, crossover and mutation</p>
-</div>
 
-<div class="panel" id="panelInputs">
-  <h2>2. ai inputs</h2>
-  <div id="inputList" class="row"></div>
-  <div class="row" style="margin-top:8px">
-    <label>grid width<sup class="tip" data-tip="how many tile columns ahead of the player the tile grid senses">?</sup> <input id="gridWidth" type="number" min="1" max="8" value="4"></label>
-    <label>grid height<sup class="tip" data-tip="how many tile rows above the ground the tile grid senses">?</sup> <input id="gridHeight" type="number" min="1" max="6" value="3"></label>
-    <span class="legend">grid = tiles in front of the player (solid / hazard / coin), used when "tile grid" is checked</span>
+  <div class="panel" id="panelOutputs">
+    <h2>3. ai outputs</h2>
+    <div id="outputList" class="row"></div>
   </div>
-  <p class="legend">changing inputs resets all networks &mdash; the input layer size changes</p>
-</div>
 
-<div class="panel" id="panelOutputs">
-  <h2>3. ai outputs</h2>
-  <div id="outputList" class="row"></div>
-  <p class="legend">actions the AI may pick from &mdash; each frame the network chooses one enabled action (argmax) &mdash; changing outputs resets all networks: the output layer size changes</p>
-</div>
+  <div class="panel" id="panelNetwork">
+    <h2>4. network</h2>
+    <div class="row">
+      <span class="row" data-algo="ga rl">
+        <label>hidden layers<sup class="tip" data-tip="depth of the brain &mdash; more layers can learn more complex tricks but train slower and need more data">?</sup> <input id="hiddenLayers" type="range" min="1" max="20" value="3"> <span
+            id="hiddenLayersValue">3</span></label>
+        <label>neurons / layer<sup class="tip" data-tip="width of the brain &mdash; neurons in each hidden layer. bigger = more capacity, slower to run and train">?</sup> <input id="layerSize" type="range" min="5" max="20" value="10"> <span
+            id="layerSizeValue">10</span></label>
+      </span>
+      <span class="stats">inputs: <b id="inputCount">?</b> &nbsp; outputs: <b id="outputCount">?</b> &nbsp; <span id="weightLabel">weights</span>: <b id="weightCount">?</b></span>
+    </div>
+    <canvas id="networkCanvas" width="940" height="220"></canvas>
+  </div>
 
-<div class="panel" id="panelNetwork">
-  <h2>4. network</h2>
-  <div class="row">
-    <span class="row" data-algo="ga rl">
-      <label>hidden layers<sup class="tip" data-tip="depth of the brain &mdash; more layers can learn more complex tricks but train slower and need more data">?</sup> <input id="hiddenLayers" type="range" min="1" max="20" value="3"> <span id="hiddenLayersValue">3</span></label>
-      <label>neurons / layer<sup class="tip" data-tip="width of the brain &mdash; neurons in each hidden layer. bigger = more capacity, slower to run and train">?</sup> <input id="layerSize" type="range" min="5" max="20" value="10"> <span id="layerSizeValue">10</span></label>
-    </span>
-    <span class="legend" data-algo="neat">topology is not fixed &mdash; NEAT grows nodes &amp; connections by mutation, starting from inputs wired straight to outputs</span>
-    <span class="stats">inputs: <b id="inputCount">?</b> &nbsp; outputs: <b id="outputCount">?</b> &nbsp; <span id="weightLabel">weights</span>: <b id="weightCount">?</b></span>
+  <div class="panel" id="panelTraining">
+    <h2>5. training</h2>
+    <div class="row" style="margin-bottom:8px" data-algo="ga neat">
+      <label>population<sup class="tip" data-tip="how many brains compete each generation &mdash; more = broader search per generation, but each generation takes longer">?</sup> <input id="populationSize" type="range" min="20" max="200"
+          value="60"> <span id="populationSizeValue">60</span></label>
+      <label>threads<sup class="tip" data-tip="cpu workers evaluating brains in parallel &mdash; more = faster generations (up to your core count)">?</sup> <input id="threadCount" type="range" min="1" max="16" value="4"> <span
+          id="threadCountValue">4</span></label>
+    </div>
+    <div class="row" style="margin-bottom:8px" data-algo="neat">
+      <label>species target<sup class="tip" data-tip="how many species to aim for &mdash; species group similar brains so new topology ideas get time to mature instead of being outcompeted instantly">?</sup> <input id="speciesTarget"
+          type="number" min="1" max="20" value="8"></label>
+    </div>
+    <div class="row" style="margin-bottom:8px" data-algo="rl">
+      <label>learning rate<sup class="tip" data-tip="size of each weight update &mdash; too high and learning explodes, too low and it crawls">?</sup> <input id="rlLearningRate" type="number" step="0.0005" value="0.001"></label>
+      <label>discount &gamma;<sup class="tip" data-tip="how much future reward matters vs the immediate one &mdash; closer to 1 = far-sighted (plans ahead), lower = greedy">?</sup> <input id="rlGamma" type="number" step="0.01"
+          value="0.99"></label>
+      <label>&epsilon; decay<sup class="tip" data-tip="after every episode the exploration rate &epsilon; is multiplied by this &mdash; closer to 1 = keeps trying random actions for longer before trusting itself">?</sup> <input
+          id="rlEpsilonDecay" type="number" step="0.001" value="0.99"></label>
+      <label>batch<sup class="tip" data-tip="how many remembered moments are replayed per learning update &mdash; bigger = smoother but slower updates">?</sup> <input id="rlBatchSize" type="number" step="16" value="128"></label>
+      <label>episodes / iter<sup class="tip" data-tip="episodes played between chart points and benchmark runs &mdash; purely how often progress is reported">?</sup> <input id="rlEpisodes" type="number" min="1" max="20" value="3"></label>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <label>fit last <input id="mapWindow" type="number" min="1" max="50" value="10"> maps<sup class="tip"
+          data-tip="scores are averaged over this many recent maps &mdash; more maps = must generalize better, but each evaluation takes longer">?</sup></label>
+      <span class="stats">fitness rewards:</span>
+      <label>coin<sup class="tip" data-tip="points per coin collected &mdash; raise it and the AI starts detouring for coins">?</sup> <input id="rewardCoin" type="number" step="1" value="20"></label>
+      <label>enemy kill<sup class="tip" data-tip="points for stomping an enemy &mdash; raise it to encourage hunting instead of avoiding">?</sup> <input id="rewardKill" type="number" step="1" value="5"></label>
+      <label>death<sup class="tip" data-tip="penalty for dying to a hazard &mdash; more negative = more cautious play">?</sup> <input id="rewardDeath" type="number" step="10" value="-10"></label>
+      <label>jump<sup class="tip" data-tip="points per jump &mdash; negative discourages pointless hopping, positive makes it bouncy">?</sup> <input id="rewardJump" type="number" step="1" value="-1"></label>
+      <label>distance<sup class="tip" data-tip="points for progress toward the flag, scaled by how far it got &mdash; the main drive to move right">?</sup> <input id="rewardDistance" type="number" step="100" value="1000"></label>
+      <label>time / sec<sup class="tip" data-tip="points per second spent &mdash; negative rewards finishing fast, dawdling gets expensive">?</sup> <input id="rewardTime" type="number" step="0.1" value="-1"></label>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <button id="buttonTrain">TRAIN</button>
+      <button id="buttonWatch">WATCH BEST</button>
+      <button id="buttonLevel">NEW LEVEL</button>
+    </div>
+    <p class="stats" style="margin-bottom:8px"><span id="genLabel">gen</span> <b id="generationValue">0</b> &nbsp; best <b id="bestValue">0</b> &nbsp; <span id="algoStats"></span> &nbsp; <span id="modeValue">idle</span></p>
+    <canvas id="gameCanvas" width="940" height="240"></canvas>
   </div>
-  <canvas id="networkCanvas" width="940" height="220"></canvas>
-</div>
 
-<div class="panel" id="panelTraining">
-  <h2>5. training</h2>
-  <div class="row" style="margin-bottom:8px" data-algo="ga neat">
-    <label>population<sup class="tip" data-tip="how many brains compete each generation &mdash; more = broader search per generation, but each generation takes longer">?</sup> <input id="populationSize" type="range" min="20" max="200" value="60"> <span id="populationSizeValue">60</span></label>
-    <label>threads<sup class="tip" data-tip="cpu workers evaluating brains in parallel &mdash; more = faster generations (up to your core count)">?</sup> <input id="threadCount" type="range" min="1" max="16" value="4"> <span id="threadCountValue">4</span></label>
+  <div class="panel" id="panelProgress">
+    <h2>6. progress</h2>
+    <canvas id="chartCanvas" width="940" height="180"></canvas>
   </div>
-  <div class="row" style="margin-bottom:8px" data-algo="neat">
-    <label>species target<sup class="tip" data-tip="how many species to aim for &mdash; species group similar brains so new topology ideas get time to mature instead of being outcompeted instantly">?</sup> <input id="speciesTarget" type="number" min="1" max="20" value="8"></label>
-    <span class="legend">the compatibility threshold self-adjusts to hold roughly this many species</span>
-  </div>
-  <div class="row" style="margin-bottom:8px" data-algo="rl">
-    <label>learning rate<sup class="tip" data-tip="size of each weight update &mdash; too high and learning explodes, too low and it crawls">?</sup> <input id="rlLearningRate" type="number" step="0.0005" value="0.001"></label>
-    <label>discount &gamma;<sup class="tip" data-tip="how much future reward matters vs the immediate one &mdash; closer to 1 = far-sighted (plans ahead), lower = greedy">?</sup> <input id="rlGamma" type="number" step="0.01" value="0.99"></label>
-    <label>&epsilon; decay<sup class="tip" data-tip="after every episode the exploration rate &epsilon; is multiplied by this &mdash; closer to 1 = keeps trying random actions for longer before trusting itself">?</sup> <input id="rlEpsilonDecay" type="number" step="0.001" value="0.995"></label>
-    <label>batch<sup class="tip" data-tip="how many remembered moments are replayed per learning update &mdash; bigger = smoother but slower updates">?</sup> <input id="rlBatchSize" type="number" step="16" value="64"></label>
-    <label>episodes / iter<sup class="tip" data-tip="episodes played between chart points and benchmark runs &mdash; purely how often progress is reported">?</sup> <input id="rlEpisodes" type="number" min="1" max="20" value="3"></label>
-  </div>
-  <div class="row" style="margin-bottom:8px">
-    <label>fit last <input id="mapWindow" type="number" min="1" max="50" value="10"> maps<sup class="tip" data-tip="scores are averaged over this many recent maps &mdash; more maps = must generalize better, but each evaluation takes longer">?</sup></label>
-    <span class="stats">fitness rewards:</span>
-    <label>coin<sup class="tip" data-tip="points per coin collected &mdash; raise it and the AI starts detouring for coins">?</sup> <input id="rewardCoin" type="number" step="1" value="20"></label>
-    <label>enemy kill<sup class="tip" data-tip="points for stomping an enemy &mdash; raise it to encourage hunting instead of avoiding">?</sup> <input id="rewardKill" type="number" step="1" value="5"></label>
-    <label>death<sup class="tip" data-tip="penalty for dying to a hazard &mdash; more negative = more cautious play">?</sup> <input id="rewardDeath" type="number" step="10" value="-10"></label>
-    <label>jump<sup class="tip" data-tip="points per jump &mdash; negative discourages pointless hopping, positive makes it bouncy">?</sup> <input id="rewardJump" type="number" step="1" value="-1"></label>
-    <label>distance<sup class="tip" data-tip="points for progress toward the flag, scaled by how far it got &mdash; the main drive to move right">?</sup> <input id="rewardDistance" type="number" step="100" value="1000"></label>
-    <label>time / sec<sup class="tip" data-tip="points per second spent &mdash; negative rewards finishing fast, dawdling gets expensive">?</sup> <input id="rewardTime" type="number" step="0.1" value="-1"></label>
-  </div>
-  <p class="legend">distance = points for reaching the flag, scaled by progress (1000 &rarr; 1% of the level = 10 points) &nbsp;&middot;&nbsp; time is charged per second &nbsp;&middot;&nbsp; the DQN agent receives the same score as a per-step reward (fitness delta)</p>
-  <div class="row" style="margin-bottom:8px">
-    <button id="buttonTrain">TRAIN</button>
-    <button id="buttonWatch">WATCH BEST</button>
-    <button id="buttonLevel">NEW LEVEL</button>
-    <span class="stats"><span id="genLabel">gen</span> <b id="generationValue">0</b> &nbsp; best <b id="bestValue">0</b> &nbsp; <span id="algoStats"></span> &nbsp; <span id="modeValue">idle</span></span>
-  </div>
-  <p class="legend" data-algo="ga neat">a new map is generated every generation; each genome is scored on the average of the last X maps, so the brain must generalize &mdash; NEW LEVEL injects a fresh map immediately</p>
-  <p class="legend" data-algo="rl">a new map is added every iteration; episodes rotate through the last X maps while the agent learns from per-step rewards with &epsilon;-greedy exploration (&epsilon; shown above decays as it learns)</p>
-  <canvas id="gameCanvas" width="940" height="240"></canvas>
-  <p class="legend">hazards: pit / spike / enemy = death (goombas &amp; flyers can be stomped, red spinies cannot) &nbsp;&middot;&nbsp; springs bounce high &nbsp;&middot;&nbsp; reach the flag to win</p>
-</div>
 
-<div class="panel" id="panelProgress">
-  <h2>6. progress</h2>
-  <canvas id="chartCanvas" width="940" height="180"></canvas>
-  <p class="legend"><i style="color:#111">&#9644; best fitness</i> <i style="color:#999">&#9644; population / episode average</i> <i style="color:#1565c0">&#9644; benchmark (best model on the hidden fixed level, never trained on)</i> per generation / iteration &mdash; each method keeps its own history</p>
-</div>
-
-<script src="js/neuralNetwork.js"></script>
-<script src="js/simulation.js"></script>
-<script src="js/level.js"></script>
-<script src="js/genetics.js"></script>
-<script src="js/neat.js"></script>
-<script src="js/rl.js"></script>
-<script src="js/trainer.js"></script>
-<script src="js/rendering.js"></script>
-<script src="js/main.js"></script>
+  <script src="js/neuralNetwork.js"></script>
+  <script src="js/simulation.js"></script>
+  <script src="js/level.js"></script>
+  <script src="js/genetics.js"></script>
+  <script src="js/neat.js"></script>
+  <script src="js/rl.js"></script>
+  <script src="js/trainer.js"></script>
+  <script src="js/rendering.js"></script>
+  <script src="js/main.js"></script>
 </body>
+
 </html>

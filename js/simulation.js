@@ -18,7 +18,7 @@ function createSimulationModule(NeuralNetwork) {
 
   function newRun(level) {
     return {
-      x: PLAYER_START_X, y: GROUND_Y, velocityY: 0,
+      x: PLAYER_START_X, y: GROUND_Y, velocityX: 0, velocityY: 0,
       onGround: true, dead: false, won: false, killedByHazard: false,
       distance: 0, coinsCollected: 0, enemiesKilled: 0, jumps: 0, steps: 0, stuckSteps: 0, bestX: PLAYER_START_X,
       collectedCoins: new Set(),
@@ -57,6 +57,10 @@ function createSimulationModule(NeuralNetwork) {
     return false;
   }
 
+  function enemySpeed(enemy) {
+    return enemy.type === "flyer" ? 1.1 : enemy.type === "spiny" ? 1.0 : 0.8;
+  }
+
   function step(state, level, action) {
     let velocityX = 0;
     if (action === 1) velocityX = -RUN_SPEED;
@@ -68,6 +72,7 @@ function createSimulationModule(NeuralNetwork) {
     }
 
     state.x += velocityX;
+    state.velocityX = velocityX;
     if (state.x < 20) state.x = 20;
     const previousY = state.y;
     state.velocityY += GRAVITY;
@@ -123,7 +128,7 @@ function createSimulationModule(NeuralNetwork) {
 
     for (const enemy of state.enemies) {
       if (!enemy.alive) continue;
-      enemy.x += enemy.direction * (enemy.type === "flyer" ? 1.1 : enemy.type === "spiny" ? 1.0 : 0.8);
+      enemy.x += enemy.direction * enemySpeed(enemy);
       if (enemy.x < enemy.baseX - enemy.range || enemy.x > enemy.baseX + enemy.range) enemy.direction *= -1;
       if (enemy.type === "flyer") {
         enemy.phase += 0.06;
@@ -215,86 +220,134 @@ function createSimulationModule(NeuralNetwork) {
     output[offset + 1] = Math.max(-1, Math.min(1, (item.y - state.y) / VERTICAL_SIGHT));
   }
 
+  // Writes an entity's velocity (vx, vy) normalized to roughly [-1, 1].
+  function writeEntityVelocity(enemy, output, offset) {
+    if (!enemy) {
+      output[offset] = 0;
+      output[offset + 1] = 0;
+      return;
+    }
+    output[offset] = enemy.direction * enemySpeed(enemy) / 1.5;
+    // flyers bob vertically: y = baseY + sin(phase) * 26, phase += 0.06 per step
+    output[offset + 1] = enemy.type === "flyer" ? Math.max(-1, Math.min(1, Math.cos(enemy.phase) * 26 * 0.06 / 2)) : 0;
+  }
+
   const INPUT_DEFINITIONS = [
     {
-      id: "velocityY", label: "vertical speed",
+      id: "velocityX", label: "horizontal speed", group: "player",
+      size: () => 1, labels: () => ["vx"],
+      read(state, level, config, output, offset) {
+        output[offset] = Math.max(-1, Math.min(1, state.velocityX / RUN_SPEED));
+      }
+    },
+    {
+      id: "velocityY", label: "vertical speed", group: "player",
       size: () => 1, labels: () => ["vy"],
       read(state, level, config, output, offset) {
         output[offset] = Math.max(-1, Math.min(1, state.velocityY / 12));
       }
     },
     {
-      id: "onGround", label: "on ground",
+      id: "onGround", label: "on ground", group: "player",
       size: () => 1, labels: () => ["ground"],
       read(state, level, config, output, offset) {
         output[offset] = state.onGround ? 1 : 0;
       }
     },
     {
-      id: "obstacleDistance", label: "obstacle distance",
+      id: "playerHeight", label: "height", group: "player",
+      size: () => 1, labels: () => ["height"],
+      read(state, level, config, output, offset) {
+        output[offset] = Math.max(0, Math.min(1, (GROUND_Y - state.y) / VERTICAL_SIGHT));
+      }
+    },
+    {
+      id: "obstacleDistance", label: "obstacle distance", group: "terrain",
       size: () => 1, labels: () => ["obst"],
       read(state, level, config, output, offset) {
         output[offset] = nearestAheadDistance(state, level.obstacles, obstacle => obstacle.x);
       }
     },
     {
-      id: "pitDistance", label: "pit distance",
+      id: "pitDistance", label: "pit distance", group: "terrain",
       size: () => 1, labels: () => ["pit"],
       read(state, level, config, output, offset) {
         output[offset] = nearestAheadDistance(state, level.pits, pit => pit.x);
       }
     },
     {
-      id: "spikeDistance", label: "spike distance",
+      id: "spikeDistance", label: "spike distance", group: "terrain",
       size: () => 1, labels: () => ["spike"],
       read(state, level, config, output, offset) {
         output[offset] = nearestAheadDistance(state, level.spikes, spike => spike.x);
       }
     },
     {
-      id: "springDistance", label: "spring distance",
+      id: "springDistance", label: "spring distance", group: "terrain",
       size: () => 1, labels: () => ["spring"],
       read(state, level, config, output, offset) {
         output[offset] = nearestAheadDistance(state, level.springs, spring => spring.x);
       }
     },
     {
-      id: "enemy1", label: "enemy 1 x/y",
+      id: "enemy1", label: "enemy 1 x/y", group: "enemies",
       size: () => 2, labels: () => ["en1 dx", "en1 dy"],
       read(state, level, config, output, offset) {
         writeEntity(state, enemiesAhead(state)[0], output, offset);
       }
     },
     {
-      id: "enemy2", label: "enemy 2 x/y",
+      id: "enemy2", label: "enemy 2 x/y", group: "enemies",
       size: () => 2, labels: () => ["en2 dx", "en2 dy"],
       read(state, level, config, output, offset) {
         writeEntity(state, enemiesAhead(state)[1], output, offset);
       }
     },
     {
-      id: "coin1", label: "coin 1 x/y",
+      id: "enemy1Velocity", label: "enemy 1 vx/vy", group: "enemies",
+      size: () => 2, labels: () => ["en1 vx", "en1 vy"],
+      read(state, level, config, output, offset) {
+        writeEntityVelocity(enemiesAhead(state)[0], output, offset);
+      }
+    },
+    {
+      id: "enemy2Velocity", label: "enemy 2 vx/vy", group: "enemies",
+      size: () => 2, labels: () => ["en2 vx", "en2 vy"],
+      read(state, level, config, output, offset) {
+        writeEntityVelocity(enemiesAhead(state)[1], output, offset);
+      }
+    },
+    {
+      id: "enemy1Type", label: "enemy 1 stompable", group: "enemies",
+      size: () => 1, labels: () => ["en1 st"],
+      read(state, level, config, output, offset) {
+        const enemy = enemiesAhead(state)[0];
+        output[offset] = !enemy ? 0 : enemy.type === "spiny" ? -1 : 1;
+      }
+    },
+    {
+      id: "coin1", label: "coin 1 x/y", group: "coins",
       size: () => 2, labels: () => ["co1 dx", "co1 dy"],
       read(state, level, config, output, offset) {
         writeEntity(state, coinsAhead(state, level)[0], output, offset);
       }
     },
     {
-      id: "coin2", label: "coin 2 x/y",
+      id: "coin2", label: "coin 2 x/y", group: "coins",
       size: () => 2, labels: () => ["co2 dx", "co2 dy"],
       read(state, level, config, output, offset) {
         writeEntity(state, coinsAhead(state, level)[1], output, offset);
       }
     },
     {
-      id: "coin3", label: "coin 3 x/y",
+      id: "coin3", label: "coin 3 x/y", group: "coins",
       size: () => 2, labels: () => ["co3 dx", "co3 dy"],
       read(state, level, config, output, offset) {
         writeEntity(state, coinsAhead(state, level)[2], output, offset);
       }
     },
     {
-      id: "rayForward", label: "sight front",
+      id: "rayForward", label: "sight front", group: "terrain",
       size: () => 1, labels: () => ["ray fw"],
       read(state, level, config, output, offset) {
         let distance = SIGHT;
@@ -305,7 +358,7 @@ function createSimulationModule(NeuralNetwork) {
       }
     },
     {
-      id: "rayUp", label: "sight up",
+      id: "rayUp", label: "sight up", group: "terrain",
       size: () => 1, labels: () => ["ray up"],
       read(state, level, config, output, offset) {
         let distance = VERTICAL_SIGHT;
@@ -316,7 +369,25 @@ function createSimulationModule(NeuralNetwork) {
       }
     },
     {
-      id: "tileGrid", label: "tile grid (WxH in front)",
+      id: "rayDown", label: "sight down", group: "terrain",
+      size: () => 1, labels: () => ["ray dn"],
+      read(state, level, config, output, offset) {
+        let distance = VERTICAL_SIGHT;
+        for (let t = 0; t < VERTICAL_SIGHT; t += 8) {
+          if (solidAt(level, state.x, state.y + t)) { distance = t; break; }
+        }
+        output[offset] = distance / VERTICAL_SIGHT;
+      }
+    },
+    {
+      id: "flagDistance", label: "flag distance", group: "terrain",
+      size: () => 1, labels: () => ["flag"],
+      read(state, level, config, output, offset) {
+        output[offset] = Math.max(0, Math.min(1, (level.flagX - state.x) / (level.flagX - PLAYER_START_X)));
+      }
+    },
+    {
+      id: "tileGrid", label: "tile grid (WxH in front)", group: "grid",
       size: config => config.gridWidth * config.gridHeight,
       labels: config => {
         const labels = [];

@@ -125,6 +125,15 @@ function createRenderingModule(Simulation) {
         gameContext.moveTo(playerX, state.y - 26);
         gameContext.lineTo(playerX, state.y - 26 - distance);
         gameContext.stroke();
+      } else if (entry.id === "rayDown") {
+        const distance = sensorVector[entry.offset] * VERTICAL_SIGHT;
+        if (distance <= 0) continue;
+        gameContext.strokeStyle = "#557755";
+        gameContext.lineWidth = 2;
+        gameContext.beginPath();
+        gameContext.moveTo(playerX, state.y);
+        gameContext.lineTo(playerX, state.y + distance);
+        gameContext.stroke();
       } else if (entry.size === 1 && color) {
         const value = sensorVector[entry.offset];
         if (value >= 1) { rayIndex++; continue; }

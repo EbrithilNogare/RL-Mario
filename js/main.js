@@ -15,19 +15,26 @@ const DEFAULT_INPUTS = [
 ];
 
 const INPUT_TIPS = {
+  velocityX: "current horizontal speed — tells the AI whether it is actually moving or pushed against a wall",
   velocityY: "current vertical speed — tells the AI whether it is rising, falling or standing still",
   onGround: "1 when standing on something, 0 while mid-air — helps time jumps",
+  playerHeight: "how high above ground level it currently is — useful for judging jump arcs",
   obstacleDistance: "distance to the next pipe ahead (1 = nothing in sight)",
   pitDistance: "distance to the next pit ahead — essential for not falling in",
   spikeDistance: "distance to the next spike patch ahead",
   springDistance: "distance to the next spring ahead — springs bounce extra high",
   enemy1: "relative x/y position of the nearest enemy ahead",
   enemy2: "relative x/y position of the second nearest enemy ahead",
+  enemy1Velocity: "velocity of the nearest enemy ahead — is it approaching or retreating, rising or diving",
+  enemy2Velocity: "velocity of the second nearest enemy ahead",
+  enemy1Type: "1 if the nearest enemy can be stomped, -1 for a spiny (deadly from above), 0 if none",
   coin1: "relative x/y position of the nearest uncollected coin ahead",
   coin2: "relative x/y position of the second nearest coin ahead",
   coin3: "relative x/y position of the third nearest coin ahead",
   rayForward: "how far it can see straight ahead before hitting something solid",
   rayUp: "how far it can see straight up before hitting something solid — useful under platforms",
+  rayDown: "how far below the ground is — while airborne this tells it whether a landing spot exists (a pit reads as bottomless)",
+  flagDistance: "remaining distance to the flag (1 = at the start, 0 = at the flag) — a sense of overall progress",
   tileGrid: "a width x height grid of tiles in front, each marked solid / hazard / coin — the richest (and biggest) input"
 };
 
@@ -58,7 +65,7 @@ const state = {
   threadCount: Math.min(4, navigator.hardwareConcurrency || 4),
   rewards: { ...Simulation.DEFAULT_REWARDS },
   neat: { speciesTarget: 8 },
-  rl: { learningRate: 0.001, gamma: 0.99, epsilonDecay: 0.995, batchSize: 64, episodesPerIteration: 3 },
+  rl: { learningRate: 0.001, gamma: 0.99, epsilonDecay: 0.99, batchSize: 128, episodesPerIteration: 3 },
   training: false,
   watching: false,
   watchRun: null
@@ -68,22 +75,13 @@ const state = {
 const algoState = {
   ga: { population: [], bestGenome: null, generation: 0, history: [], levelMarkers: [] },
   neat: { population: [], bestGenome: null, bestNetwork: null, speciesCount: 1, generation: 0, history: [], levelMarkers: [] },
-  rl: { agent: null, episodeCounter: 0, generation: 0, history: [], levelMarkers: [] }
+  rl: { agent: null, bestGenome: null, bestScore: -Infinity, episodeCounter: 0, generation: 0, history: [], levelMarkers: [] }
 };
 
 const ALGORITHM_INFO = {
-  ga: {
-    generationLabel: "gen",
-    description: "evolves a fixed-size network by selection, crossover and mutation"
-  },
-  neat: {
-    generationLabel: "gen",
-    description: "neuroevolution of augmenting topologies: network structure and weights evolve together, protected by speciation"
-  },
-  rl: {
-    generationLabel: "iter",
-    description: "a single agent learns from per-step rewards with deep q-learning (experience replay + target network)"
-  }
+  ga: { generationLabel: "gen" },
+  neat: { generationLabel: "gen" },
+  rl: { generationLabel: "iter" }
 };
 
 let trainerPool = null;
@@ -180,6 +178,8 @@ const controllers = {
     reset() {
       const A = algoState.rl;
       A.agent = RL.createAgent(state.shape, state.rl);
+      A.bestGenome = null;
+      A.bestScore = -Infinity;
       A.episodeCounter = 0;
       A.generation = 0;
       A.history = [];
@@ -198,15 +198,22 @@ const controllers = {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
       A.generation++;
-      const agent = A.agent;
-      const benchmark = Simulation.evaluateWith(
-        vector => state.actionMap[RL.act(agent, vector, true)],
-        state.benchmarkLevel, state.sensorReader, state.rewards
-      );
+      // DQN policies oscillate as they keep learning — snapshot the best policy
+      // so far (greedy score on recent training maps), like GA keeps its best genome
+      const probeLevels = state.levels.slice(-3);
+      let probeSum = 0;
+      for (const level of probeLevels) probeSum += rlGreedyScore(A.agent.genome, level);
+      const probeScore = probeSum / probeLevels.length;
+      if (probeScore > A.bestScore) {
+        A.bestScore = probeScore;
+        A.bestGenome = A.agent.genome.slice();
+      }
+      const benchmark = rlGreedyScore(A.bestGenome || A.agent.genome, state.benchmarkLevel);
       A.history.push({ best, average: sum / episodes, benchmark });
     },
     act(sensorVector) {
-      const result = NeuralNetwork.forward(algoState.rl.agent.genome, state.shape, sensorVector, true, true);
+      const A = algoState.rl;
+      const result = NeuralNetwork.forward(A.bestGenome || A.agent.genome, state.shape, sensorVector, true, true, true);
       let maxAbs = 1;
       for (const value of result.output) maxAbs = Math.max(maxAbs, Math.abs(value));
       const display = Float32Array.from(result.output, value => value / maxAbs); // q-values are unbounded
@@ -214,7 +221,8 @@ const controllers = {
       return { actionIndex: state.actionMap[chosenIndex], chosenIndex, outputs: display, activations: result.activations };
     },
     drawNetwork(actResult) {
-      Rendering.drawNetwork(state.shape, algoState.rl.agent.genome,
+      const A = algoState.rl;
+      Rendering.drawNetwork(state.shape, A.bestGenome || A.agent.genome,
         actResult ? actResult.activations : null, state.sensorReader.labels, outputLabels());
     },
     statsText() {
@@ -252,6 +260,13 @@ function rebuildShared() {
 
 function outputLabels() {
   return state.actionMap.map(index => Simulation.OUTPUT_LABELS[index]);
+}
+
+function rlGreedyScore(genome, level) {
+  return Simulation.evaluateWith(vector => {
+    const q = NeuralNetwork.forward(genome, state.shape, vector, false, true, true).output;
+    return state.actionMap[NeuralNetwork.argmax(q)];
+  }, level, state.sensorReader, state.rewards);
 }
 
 function rebuildTrainerPool() {
@@ -368,7 +383,6 @@ function applyAlgorithmUi() {
   document.querySelectorAll("[data-algo]").forEach(node => {
     node.classList.toggle("algo-hidden", !node.getAttribute("data-algo").split(" ").includes(state.algorithm));
   });
-  element("algoDescription").textContent = ALGORITHM_INFO[state.algorithm].description;
   document.querySelectorAll("[data-help-algo]").forEach(node => {
     node.classList.toggle("help-active", node.getAttribute("data-help-algo") === state.algorithm);
   });
@@ -406,7 +420,7 @@ function layoutHelpPanel() {
   const bottom = lastPanel.getBoundingClientRect().bottom + window.scrollY;
   help.style.left = (contentRight + 8) + "px";
   help.style.top = top + "px";
-  help.style.width = Math.min(320, available) + "px";
+  help.style.width = Math.min(400, available) + "px";
   help.style.height = (bottom - top) + "px";
   for (const section of sections) {
     const targetId = section.getAttribute("data-help-for");
@@ -491,8 +505,8 @@ function buildOutputCheckboxes() {
 }
 
 function buildInputCheckboxes() {
-  const container = element("inputList");
   for (const definition of Simulation.INPUT_DEFINITIONS) {
+    const container = element("inputGroup_" + definition.group);
     const label = document.createElement("label");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";

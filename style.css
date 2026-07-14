@@ -32,6 +32,16 @@ h2 { font-size: 14px; margin-bottom: 8px; text-transform: uppercase; }
 
 .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
 
+.input-row { margin-bottom: 6px; }
+.input-row:last-of-type { margin-bottom: 0; }
+.input-group-label {
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  width: 58px;
+  flex-shrink: 0;
+}
+
 label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 
 input[type=range] { width: 120px; accent-color: var(--ink); }
@@ -109,7 +119,7 @@ canvas {
   top: 16px;
   right: 16px;
   bottom: 16px;
-  width: 320px;
+  width: 400px;
   overflow-y: auto;
   background: var(--panel);
   border: 2px solid var(--ink);
